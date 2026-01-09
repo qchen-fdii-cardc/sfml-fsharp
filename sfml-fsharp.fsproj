@@ -6,7 +6,6 @@
     <PublishSingleFile>true</PublishSingleFile>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
-    <Aot>true</Aot>
   </PropertyGroup>
     
 
