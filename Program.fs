@@ -20,26 +20,48 @@ module PInvoke =
     [<DllImport("dwmapi.dll")>]
     extern void DwmExtendFrameIntoClientArea(IntPtr hWnd, [<In>] MARGINS& pMarInset)
 
+    let margins =
+        MARGINS(cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1)
+
+    let dwmExtendFrameIntoClientArea (hWnd: IntPtr) =
+        let mutable margins = margins
+        DwmExtendFrameIntoClientArea(hWnd, &margins)
+
     [<DllImport("user32.dll")>]
     extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags)
 
 module Config =
     // Constants for configuration
-    let [<Literal>] Boundary = 2
-    let [<Literal>] CirclesPerFrame = 5
+    [<Literal>]
+    let Boundary = 2
+
+    [<Literal>]
+    let CirclesPerFrame = 5
+
+    [<Literal>]
+    let FrameDelayMs = 10
+
+    [<Literal>]
+    let circleSizeMin = 4
+
+    [<Literal>]
+    let circleSizeMax = 80
+
+    [<Literal>]
+    let colorAlphaMax = 200
     // compare inputSequence with the Konami code
-    let KonamiCode = List.rev [
-        Keyboard.Key.Up
-        Keyboard.Key.Up
-        Keyboard.Key.Down
-        Keyboard.Key.Down
-        Keyboard.Key.Left
-        Keyboard.Key.Right
-        Keyboard.Key.Left
-        Keyboard.Key.Right
-        Keyboard.Key.B
-        Keyboard.Key.A
-    ]
+    let KonamiCode =
+        List.rev
+            [ Keyboard.Key.Up
+              Keyboard.Key.Up
+              Keyboard.Key.Down
+              Keyboard.Key.Down
+              Keyboard.Key.Left
+              Keyboard.Key.Right
+              Keyboard.Key.Left
+              Keyboard.Key.Right
+              Keyboard.Key.B
+              Keyboard.Key.A ]
     // Constants for SetWindowPos
     let HWND_TOPMOST = IntPtr(-1)
     let SWP_NOMOVE = 0x0002u
@@ -56,9 +78,9 @@ module Circle =
 
     // Creates a new random circle shape
     let createRandom (rand: Random) (bounds: IntRect) =
-        let circleRadius = rand.Next(4, 80) |> float32
+        let circleRadius = rand.Next(Config.circleSizeMin, Config.circleSizeMax) |> float32
         let circle = new CircleShape(circleRadius)
-        let randomColor = randColor rand 128
+        let randomColor = randColor rand Config.colorAlphaMax
         circle.FillColor <- randomColor
 
         let x = rand.Next(bounds.Left, bounds.Left + bounds.Width - 2 * int circleRadius)
@@ -72,12 +94,7 @@ module Circle =
         let height = int window.Size.Y
 
         let drawingBounds =
-            IntRect(
-                Config.Boundary,
-                Config.Boundary,
-                width - 2 * Config.Boundary,
-                height - 2 * Config.Boundary
-            )
+            IntRect(Config.Boundary, Config.Boundary, width - 2 * Config.Boundary, height - 2 * Config.Boundary)
 
         for _ in 1 .. Config.CirclesPerFrame do
             let circle = createRandom rand drawingBounds
@@ -87,8 +104,12 @@ module Circle =
         let pos = circle.Position
         let radius = circle.Radius
 
-        if pos.X < float32 bounds.Left || pos.X + 2.f * radius > float32 (bounds.Left + bounds.Width) ||
-           pos.Y < float32 bounds.Top || pos.Y + 2.f * radius > float32 (bounds.Top + bounds.Height) then
+        if
+            pos.X < float32 bounds.Left
+            || pos.X + 2.f * radius > float32 (bounds.Left + bounds.Width)
+            || pos.Y < float32 bounds.Top
+            || pos.Y + 2.f * radius > float32 (bounds.Top + bounds.Height)
+        then
             true
         else
             false
@@ -113,13 +134,12 @@ module Window =
     // Draws the boundary rectangle
     let drawBoundary (window: RenderWindow) =
         let size = window.Size
+
         let rect =
             new RectangleShape(
-                Vector2f(
-                    float32 (int size.X - 2 * Config.Boundary),
-                    float32 (int size.Y - 2 * Config.Boundary)
-                )
+                Vector2f(float32 (int size.X - 2 * Config.Boundary), float32 (int size.Y - 2 * Config.Boundary))
             )
+
         rect.Position <- Vector2f(float32 Config.Boundary, float32 Config.Boundary)
         rect.OutlineColor <- Color.Red
         rect.OutlineThickness <- 2.0f
@@ -127,22 +147,25 @@ module Window =
         window.Draw(rect)
 
     let makeTransparentAndTopmost (window: RenderWindow) =
-        // Make the window transparent
-        let mutable margins = PInvoke.MARGINS()
-        margins.cxLeftWidth <- -1
-        margins.cxRightWidth <- -1
-        margins.cyTopHeight <- -1
-        margins.cyBottomHeight <- -1
-        PInvoke.DwmExtendFrameIntoClientArea(window.SystemHandle, &margins)
+        PInvoke.dwmExtendFrameIntoClientArea (window.SystemHandle)
         // Make the window topmost
-        PInvoke.SetWindowPos(window.SystemHandle, Config.HWND_TOPMOST, 0, 0, 0, 0, Config.SWP_NOMOVE ||| Config.SWP_NOSIZE) |> ignore
+        PInvoke.SetWindowPos(
+            window.SystemHandle,
+            Config.HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            Config.SWP_NOMOVE ||| Config.SWP_NOSIZE
+        )
+        |> ignore
 
 [<EntryPoint>]
 [<STAThread>]
 let main argv =
     let videoMode = VideoMode.DesktopMode
     use window = new RenderWindow(videoMode, "", Styles.None)
-    
+
     Window.makeTransparentAndTopmost window
 
     let rand = Random()
@@ -156,19 +179,17 @@ let main argv =
 
     window.KeyPressed.Add(fun args ->
         inputSequence <- args.Code :: inputSequence
-        
+
         match args.Code with
-        | Keyboard.Key.Space ->
-            addingCircles := not !addingCircles
-        | Keyboard.Key.Escape ->           
+        | Keyboard.Key.Space -> addingCircles := not !addingCircles
+        | Keyboard.Key.Escape ->
             circles.Clear()
             inputSequence <- []
         | _ -> ()
 
         if inputSequence = Config.KonamiCode then
-            window.Close()
-    )
-    
+            window.Close())
+
     while window.IsOpen do
         window.DispatchEvents()
 
@@ -177,8 +198,10 @@ let main argv =
 
         window.Clear(Color.Transparent)
         let mutable toRemove = []
+
         for circle in circles do
             Circle.applyGravity circle
+
             let bounds =
                 IntRect(
                     Config.Boundary,
@@ -186,17 +209,19 @@ let main argv =
                     int window.Size.X - 2 * Config.Boundary,
                     int window.Size.Y - 2 * Config.Boundary
                 )
+
             if Circle.isOutOfBounds circle bounds then
                 toRemove <- circle :: toRemove
-            else    
+            else
                 window.Draw(circle)
+
         for circle in toRemove do
             circles.Remove(circle) |> ignore
 
-        Window.drawBoundary window        
-        
+        Window.drawBoundary window
+
         window.Display()
-        
-        System.Threading.Thread.Sleep(10)
+
+        System.Threading.Thread.Sleep(Config.FrameDelayMs)
 
     0 // return an integer exit code
